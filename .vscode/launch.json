@@ -8,9 +8,9 @@
       "program": "${workspaceFolder}/anki-csv-importer.py",
       "args": [
         "--path",
-        "U:\\voothi\\20241223170748-token-extraction\\out\\20250401194211-result-t1-t2.token.de.tsv",
+        "U:\\voothi\\20241223170748-token-extraction\\out\\20250401202705-result-t1-t2.sentence.de.tsv",
         "--deck",
-        "20250401194211-result-t1-t2.token.de.tsv",
+        "20250401202705-result-t1-t2.sentence.de.tsv",
         "--note",
         "Basic 20240218092126"
       ],
