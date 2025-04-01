@@ -57,6 +57,9 @@ def csv_to_ac_notes(csv_path, deck_name, note_type):
                     index_to_field_name[j] = field_name
             else:
                 for j, field_value in enumerate(row):
+                    if j not in index_to_field_name:
+                        print(f'[W] Skipping column {j} as it is not in the header')
+                        continue
                     field_name = index_to_field_name[j]
                     if field_name.lower() == 'tags':
                         tags = field_value.split(' ')
