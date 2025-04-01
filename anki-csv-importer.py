@@ -81,6 +81,48 @@ def csv_to_ac_notes(csv_path, deck_name, note_type):
     return notes
 
 
+def tsv_to_ac_notes(tsv_path, deck_name, note_type):
+    """
+    Преобразует TSV-файл в формат заметок для AnkiConnect.
+    """
+    notes = []
+    index_to_field_name = {}
+    with open(tsv_path, encoding='utf-8') as tsvfile:
+        reader = csv.reader(tsvfile, delimiter='\t')  # Используем табуляцию как разделитель
+        for i, row in enumerate(reader):
+            fields = {}
+            tags = None
+            if i == 0:
+                # Первая строка содержит заголовки
+                for j, field_name in enumerate(row):
+                    index_to_field_name[j] = field_name
+            else:
+                # Обработка строк данных
+                for j, field_value in enumerate(row):
+                    if j not in index_to_field_name:
+                        print(f'[W] Пропуск столбца {j}, так как он отсутствует в заголовке')
+                        continue
+                    field_name = index_to_field_name[j]
+                    if field_name.lower() == 'tags':
+                        tags = field_value.split(' ') if field_value else []
+                    else:
+                        fields[field_name] = field_value
+
+                note = {
+                    'deckName': deck_name,
+                    'modelName': note_type,
+                    'fields': fields,
+                    'tags': tags,
+                    'options': {
+                        "allowDuplicate": False,
+                        "duplicateScope": "deck"
+                    }
+                }
+                notes.append(note)
+
+    return notes
+
+
 def get_ac_add_and_update_note_lists(notes):
     result = invoke_ac('canAddNotes', notes=notes)
 
@@ -156,25 +198,22 @@ def ac_remove_tags(notes_to_update, note_info_results):
     invoke_multi_ac(remove_tags_actions)
 
 
-def send_to_anki_connect(
-        csv_path,
-        deck_name,
-        note_type):
+def send_to_anki_connect(tsv_path, deck_name, note_type):
     # TODO: Audio, images
-    notes = csv_to_ac_notes(csv_path, deck_name, note_type)
+    notes = tsv_to_ac_notes(tsv_path, deck_name, note_type)
 
-    # Create the deck, if it already exists this will not overwrite it
+    # Создаем колоду, если она не существует
     invoke_ac('createDeck', deck=deck_name)
 
-    # See which notes can be added
+    # Проверяем, какие заметки можно добавить
     notes_to_add, notes_to_update = get_ac_add_and_update_note_lists(notes)
 
-    print('[+] Adding {} new notes and updating {} existing notes'.format(
+    print('[+] Добавление {} новых заметок и обновление {} существующих'.format(
         len(notes_to_add),
         len(notes_to_update)))
     invoke_ac('addNotes', notes=notes_to_add)
 
-    # Find the IDs of the existing notes
+    # Обновление существующих заметок
     find_note_actions = []
     for n in notes_to_update:
         front = n['fields']['Front'].replace('"', '\\"')
@@ -182,11 +221,10 @@ def send_to_anki_connect(
         find_note_actions.append(make_ac_request('findNotes', query=query))
     find_note_results = invoke_multi_ac(find_note_actions)
 
-    # Update notes and get the note info so we can remove old tags
     new_notes_to_update, note_info_results = ac_update_notes_and_get_note_info(
         notes_to_update, find_note_results)
 
-    print('[+] Removing deleted tags from notes')
+    print('[+] Удаление устаревших тегов из заметок')
     ac_remove_tags(new_notes_to_update, note_info_results)
 
 
