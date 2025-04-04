@@ -72,7 +72,7 @@ def csv_to_ac_notes(csv_path, deck_name, note_type):
                     'fields': fields,
                     'tags': tags,
                     'options': {
-                        "allowDuplicate": False,
+                        "allowDuplicate": True,
                         "duplicateScope": "deck"
                     }
                 }
@@ -114,7 +114,7 @@ def tsv_to_ac_notes(tsv_path, deck_name, note_type):
                     'fields': fields,
                     'tags': tags,
                     'options': {
-                        "allowDuplicate": False,
+                        "allowDuplicate": True,
                         "duplicateScope": "deck"
                     }
                 }
