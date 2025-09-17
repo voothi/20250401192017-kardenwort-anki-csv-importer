@@ -312,6 +312,11 @@ def parse_arguments():
         required=True)
 
     parser.add_argument(
+        '-s', '--sync',
+        help='Automatically trigger Anki synchronization after importing notes.',
+        action='store_true')
+
+    parser.add_argument(
         '--no-anki-connect',
         help='write notes directly to Anki DB without using AnkiConnect',
         action='store_true')
@@ -393,8 +398,12 @@ def main():
             csv_path,
             args.deck,
             args.note)
-        print('[+] Syncing')
-        invoke_ac("sync")
+
+        if args.sync:
+            print('[+] Syncing')
+            invoke_ac("sync")
+        else:
+            print('[+] Import complete. Sync was skipped (use --sync to enable).')
 
     # If we downloaded this file from a URL, clean it up
     if args.url:
