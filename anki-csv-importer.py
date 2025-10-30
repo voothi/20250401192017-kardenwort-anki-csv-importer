@@ -44,43 +44,6 @@ def invoke_multi_ac(multi_actions):
     return results
 
 
-def csv_to_ac_notes(csv_path, deck_name, note_type):
-    notes = []
-    index_to_field_name = {}
-    with open(csv_path) as csvfile:
-        reader = csv.reader(csvfile)
-        for i, row in enumerate(reader):
-            fields = {}
-            tags = None
-            if i == 0:
-                for j, field_name in enumerate(row):
-                    index_to_field_name[j] = field_name
-            else:
-                for j, field_value in enumerate(row):
-                    if j not in index_to_field_name:
-                        print(f'[W] Skipping column {j} as it is not in the header')
-                        continue
-                    field_name = index_to_field_name[j]
-                    if field_name.lower() == 'tags':
-                        tags = field_value.split(' ')
-                    else:
-                        fields[field_name] = field_value
-
-                note = {
-                    'deckName': deck_name,
-                    'modelName': note_type,
-                    'fields': fields,
-                    'tags': tags,
-                    'options': {
-                        "allowDuplicate": True,
-                        "duplicateScope": "deck"
-                    }
-                }
-                notes.append(note)
-
-    return notes
-
-
 def tsv_to_ac_notes(tsv_path, deck_name, note_type):
     """
     Converts a TSV file into a format compatible with AnkiConnect.
@@ -88,16 +51,14 @@ def tsv_to_ac_notes(tsv_path, deck_name, note_type):
     notes = []
     index_to_field_name = {}
     with open(tsv_path, encoding='utf-8') as tsvfile:
-        reader = csv.reader(tsvfile, delimiter='\t')  # Use tab as a delimiter
+        reader = csv.reader(tsvfile, delimiter='\t')
         for i, row in enumerate(reader):
             fields = {}
             tags = None
             if i == 0:
-                # The first row contains headers
                 for j, field_name in enumerate(row):
                     index_to_field_name[j] = field_name
             else:
-                # Process data rows
                 for j, field_value in enumerate(row):
                     if j not in index_to_field_name:
                         print(f'[W] Skipping column {j} as it is not in the header')
@@ -140,40 +101,35 @@ def get_ac_add_and_update_note_lists(notes):
 def ac_update_notes_and_get_note_info(notes_to_update, find_note_results):
     actions = []
     for i, n in enumerate(notes_to_update):
-        front = n['fields']['Front']
+        # NEW: Changed to use 'Quotation' which is more likely to be unique.
+        # Fallback to 'Front' if 'Quotation' doesn't exist.
+        unique_field_name = 'Quotation' if 'Quotation' in n['fields'] else 'Front'
+        unique_field_value = n['fields'][unique_field_name]
 
         find_note_result = find_note_results[i]
         if len(find_note_result) == 0:
-            print('[W] Did not find any results for note with front "{}", '
+            print('[W] Did not find any results for note with {} "{}", '
                   'skipping. This is likely a bug, '
-                  'please report this to the developer'.format(front))
+                  'please report this to the developer'.format(unique_field_name, unique_field_value))
             continue
         elif len(find_note_result) > 1:
             print('[W] Duplicate notes are not supported, '
-                  'skipping note with front "{}"'.format(front))
+                  'skipping note with {} "{}"'.format(unique_field_name, unique_field_value))
             continue
 
-        # The updateNoteFields parameter is the same as the addNote parameter
-        # but with an additional ID field
         n['id'] = find_note_result[0]
         actions.append(make_ac_request('updateNoteFields', note=n))
 
         actions.append(make_ac_request('notesInfo', notes=[n['id']]))
-        actions.append(
-            make_ac_request(
-                'addTags',
-                notes=[n['id']],
-                tags=' '.join(n['tags'])))
+        if n['tags']:
+            actions.append(
+                make_ac_request(
+                    'addTags',
+                    notes=[n['id']],
+                    tags=' '.join(n['tags'])))
 
-    # Only the results for note info are not None
     note_info_results = [res for res in invoke_multi_ac(actions) if res is not None]
 
-    # We need the note info result for a note to be at the same index in
-    # note_info_results as the index of the note in notes_to_update. However,
-    # because we may skip notes that are not found or are duplicates, there may
-    # not be a result for a note and thus the indices may not match. Removing
-    # all notes where we did not set an 'id' field should cause the IDs to match
-    # up again.
     new_notes_to_update = [n for n in notes_to_update if 'id' in n]
 
     assert len(note_info_results) == len(new_notes_to_update)
@@ -187,114 +143,116 @@ def ac_remove_tags(notes_to_update, note_info_results):
         assert(len(note_info_result) == 1)
 
         existing_tags = note_info_result[0]['tags']
-        tags_to_remove = list(set(existing_tags) - set(n['tags']))
+        tags_to_remove = list(set(existing_tags) - set(n['tags'] if n['tags'] else []))
 
-        remove_tags_actions.append(
-            make_ac_request(
-                'removeTags',
-                notes=[n['id']],
-                tags=' '.join(tags_to_remove)))
+        if tags_to_remove:
+            remove_tags_actions.append(
+                make_ac_request(
+                    'removeTags',
+                    notes=[n['id']],
+                    tags=' '.join(tags_to_remove)))
+    if remove_tags_actions:
+        invoke_multi_ac(remove_tags_actions)
 
-    invoke_multi_ac(remove_tags_actions)
 
-
-def send_to_anki_connect(tsv_path, deck_name, note_type):
-    # TODO: Audio, images
+def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards): # NEW: Added suspend_cards parameter
     notes = tsv_to_ac_notes(tsv_path, deck_name, note_type)
 
-    # Create the deck if it does not exist
     invoke_ac('createDeck', deck=deck_name)
 
-    # Check which notes can be added
     notes_to_add, notes_to_update = get_ac_add_and_update_note_lists(notes)
+    
+    # --- ADD NEW NOTES ---
+    print('[+] Adding {} new notes...'.format(len(notes_to_add)))
+    added_note_ids = invoke_ac('addNotes', notes=notes_to_add)
 
-    print('[+] Adding {} new notes and updating {} existing notes'.format(
-        len(notes_to_add),
-        len(notes_to_update)))
-    invoke_ac('addNotes', notes=notes_to_add)
-
-    # Update existing notes
+    # --- UPDATE EXISTING NOTES ---
+    print('[+] Updating {} existing notes...'.format(len(notes_to_update)))
     find_note_actions = []
     for n in notes_to_update:
-        front = n['fields']['Front'].replace('"', '\\"')
-        query = 'deck:"{}" "front:{}"'.format(n['deckName'], front)
+        # NEW: Changed to use 'Quotation' which is more likely to be unique.
+        unique_field_name = 'Quotation' if 'Quotation' in n['fields'] else 'Front'
+        unique_field_value = n['fields'][unique_field_name].replace('"', '\\"')
+        query = 'deck:"{}" "{}:{}"'.format(n['deckName'], unique_field_name, unique_field_value)
         find_note_actions.append(make_ac_request('findNotes', query=query))
     find_note_results = invoke_multi_ac(find_note_actions)
 
-    new_notes_to_update, note_info_results = ac_update_notes_and_get_note_info(
+    new_notes_to_update, updated_note_info_results = ac_update_notes_and_get_note_info(
         notes_to_update, find_note_results)
 
     print('[+] Removing outdated tags from notes')
-    ac_remove_tags(new_notes_to_update, note_info_results)
+    ac_remove_tags(new_notes_to_update, updated_note_info_results)
 
+    # --- NEW: SUSPEND LOGIC ---
+    if suspend_cards:
+        card_ids_to_suspend = []
+        
+        # Get card IDs for newly added notes
+        if [nid for nid in added_note_ids if nid is not None]:
+            print('[+] Fetching card info for new notes to suspend...')
+            # Filter out None IDs which can occur if a note failed to add
+            valid_added_ids = [nid for nid in added_note_ids if nid is not None]
+            added_note_info = invoke_ac('notesInfo', notes=valid_added_ids)
+            for note_info in added_note_info:
+                card_ids_to_suspend.extend(note_info['cards'])
+        
+        # Get card IDs for updated notes from the info we already fetched
+        if updated_note_info_results:
+            print('[+] Collecting card info for updated notes to suspend...')
+            for note_info_list in updated_note_info_results:
+                for note_info in note_info_list:
+                    card_ids_to_suspend.extend(note_info['cards'])
+        
+        # Suspend all collected cards in one go
+        if card_ids_to_suspend:
+            print(f'[+] Suspending {len(card_ids_to_suspend)} cards...')
+            invoke_ac('suspend', cards=card_ids_to_suspend)
 
+# ... (The download_csv and import_csv functions remain unchanged) ...
 def download_csv(sheet_url):
     print('[+] Downloading CSV')
     r = requests.get(sheet_url)
-
     path = None
     with tempfile.NamedTemporaryFile(delete=False) as f:
         f.write(r.content)
         path = f.name
-
     print('[+] Wrote CSV to {}'.format(f.name))
     return f.name
-
 
 def import_csv(col, csv_path, deck_name, note_type, allow_html, skip_header):
     import anki
     from anki.importing import TextImporter
-
     print('[+] Importing CSV from {}'.format(csv_path))
-
     if skip_header:
-        # Remove the first line from the CSV file if the skip_header argument
-        # was provided
         with tempfile.NamedTemporaryFile(delete=False, mode='w') as tmp:
             with open(csv_path, 'r') as f:
                 tmp.writelines(f.read().splitlines()[1:])
                 csv_path = tmp.name
         print('[+] Removed CSV header and wrote new file to {}'.format(csv_path))
-
-    # Select the deck, creating it if it doesn't exist
     did = col.decks.id(deck_name)
     col.decks.select(did)
-
-    # Anki defaults to the last note type used in the selected deck
     model = col.models.byName(note_type)
     deck = col.decks.get(did)
     deck['mid'] = model['id']
     col.decks.save(deck)
-
-    # Anki puts cards in the last deck used by the note type
     model['did'] = did
-
-    # Import the CSV into the collection
     ti = anki.importing.TextImporter(col, csv_path)
     ti.allowHTML = allow_html
     ti.initMapping()
     ti.run()
-
-    # Required when running scripts outside of Anki to close the DB connection
-    # and save the changes. Sets cwd back to what it was before.
     col.close()
-
     if skip_header:
-        # Cleanup temporary file. The original file gets cleaned up in main if
-        # necessary
         os.remove(csv_path)
-
     print('[+] Finished importing CSV')
-
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description='Import a local or remote CSV file into Anki')
+        description='Import a local or remote CSV/TSV file into Anki')
 
     parser.add_argument(
         '-p',
         '--path',
-        help='the path of the local CSV file')
+        help='the path of the local CSV/TSV file')
     parser.add_argument(
         '-u',
         '--url',
@@ -315,7 +273,14 @@ def parse_arguments():
         '-s', '--sync',
         help='Automatically trigger Anki synchronization after importing notes.',
         action='store_true')
+    
+    # NEW: Added --suspend argument
+    parser.add_argument(
+        '--suspend',
+        help='Suspend all newly added and updated cards upon import.',
+        action='store_true')
 
+    # ... (rest of the arguments are unchanged) ...
     parser.add_argument(
         '--no-anki-connect',
         help='write notes directly to Anki DB without using AnkiConnect',
@@ -367,23 +332,15 @@ def main():
     validate_args(args)
 
     if args.url:
-        # Download the CSV to a tempfile
         csv_path = download_csv(args.url)
     elif args.path:
-        # Use an existing CSV file. We convert this to an absolute path because
-        # CWD might change later
         csv_path = os.path.abspath(args.path)
     else:
-        assert False  # Should never reach here
+        assert False
 
     if args.no_anki_connect:
         import anki
-
-        # Normally you use aqt.mw.col to access the collection, but we don't want
-        # to use the GUI. Note that this changes the cwd to the Anki
-        # collection.media directory
         col = anki.Collection(args.col)
-
         import_csv(
             col,
             csv_path,
@@ -394,10 +351,12 @@ def main():
         print('[W] Cards cannot be automatically synced, '
               'open Anki to sync them manually')
     else:
+        # NEW: Pass the suspend argument to the function
         send_to_anki_connect(
             csv_path,
             args.deck,
-            args.note)
+            args.note,
+            args.suspend)
 
         if args.sync:
             print('[+] Syncing')
@@ -405,7 +364,6 @@ def main():
         else:
             print('[+] Import complete. Sync was skipped (use --sync to enable).')
 
-    # If we downloaded this file from a URL, clean it up
     if args.url:
         os.remove(csv_path)
         print('[+] Removed temporary files')
