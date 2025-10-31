@@ -68,7 +68,8 @@ def tsv_to_ac_notes(tsv_path, deck_name, note_type):
                 
                 if has_deck_column and field_name == 'Deck' and field_value:
                     current_deck = field_value
-                elif field_name.lower() == 'tags':
+                
+                if field_name.lower() == 'tags':
                     tags = field_value.split(' ') if field_value else []
                 else:
                     fields[field_name] = field_value
@@ -307,7 +308,26 @@ def validate_args(args):
         print('[E] You must specify either --path or --url')
         exit(1)
     
-    # Deck validation is now handled inside tsv_to_ac_notes
+    if not args.deck:
+        file_path = args.path or args.url
+        if file_path and (file_path.startswith('http') or os.path.exists(file_path)):
+            try:
+                # This is a simplified check for the header, might not work for remote URLs without downloading
+                if file_path.startswith('http'):
+                     # Cannot reliably check remote file header without downloading
+                     pass
+                else:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        header = f.readline()
+                        if 'Deck' not in header.split('\t'):
+                            print('[E] --deck is required when no "Deck" column is present in the file')
+                            exit(1)
+            except Exception as e:
+                print(f'[W] Could not verify "Deck" column in the file, proceeding. Error: {e}')
+        else:
+            print('[E] --deck argument is required as the input file path could not be verified.')
+            exit(1)
+
 
     if args.no_anki_connect:
         if not args.col:
