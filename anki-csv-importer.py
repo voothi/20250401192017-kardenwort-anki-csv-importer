@@ -45,41 +45,48 @@ def invoke_multi_ac(multi_actions):
 
 
 def tsv_to_ac_notes(tsv_path, deck_name, note_type):
-    """
-    Converts a TSV file into a format compatible with AnkiConnect.
-    """
     notes = []
     index_to_field_name = {}
     with open(tsv_path, encoding='utf-8') as tsvfile:
         reader = csv.reader(tsvfile, delimiter='\t')
-        for i, row in enumerate(reader):
-            fields = {}
-            tags = None
-            if i == 0:
-                for j, field_name in enumerate(row):
-                    index_to_field_name[j] = field_name
-            else:
-                for j, field_value in enumerate(row):
-                    if j not in index_to_field_name:
-                        print(f'[W] Skipping column {j} as it is not in the header')
-                        continue
-                    field_name = index_to_field_name[j]
-                    if field_name.lower() == 'tags':
-                        tags = field_value.split(' ') if field_value else []
-                    else:
-                        fields[field_name] = field_value
+        header = next(reader)
+        for j, field_name in enumerate(header):
+            index_to_field_name[j] = field_name
+        
+        has_deck_column = 'Deck' in header
 
-                note = {
-                    'deckName': deck_name,
-                    'modelName': note_type,
-                    'fields': fields,
-                    'tags': tags,
-                    'options': {
-                        "allowDuplicate": True,
-                        "duplicateScope": "deck"
-                    }
+        for row in reader:
+            fields = {}
+            tags = []
+            current_deck = deck_name
+
+            for j, field_value in enumerate(row):
+                if j not in index_to_field_name:
+                    continue
+                
+                field_name = index_to_field_name[j]
+                
+                if has_deck_column and field_name == 'Deck' and field_value:
+                    current_deck = field_value
+                elif field_name.lower() == 'tags':
+                    tags = field_value.split(' ') if field_value else []
+                else:
+                    fields[field_name] = field_value
+
+            if not current_deck:
+                raise ValueError("Error: No deck name found. Provide a deck via --deck argument or a 'Deck' column in the file.")
+
+            note = {
+                'deckName': current_deck,
+                'modelName': note_type,
+                'fields': fields,
+                'tags': tags,
+                'options': {
+                    "allowDuplicate": True,
+                    "duplicateScope": "deck"
                 }
-                notes.append(note)
+            }
+            notes.append(note)
 
     return notes
 
@@ -101,10 +108,8 @@ def get_ac_add_and_update_note_lists(notes):
 def ac_update_notes_and_get_note_info(notes_to_update, find_note_results):
     actions = []
     for i, n in enumerate(notes_to_update):
-        # NEW: Changed to use 'Quotation' which is more likely to be unique.
-        # Fallback to 'Front' if 'Quotation' doesn't exist.
         unique_field_name = 'Quotation' if 'Quotation' in n['fields'] else 'Front'
-        unique_field_value = n['fields'][unique_field_name]
+        unique_field_value = n['fields'].get(unique_field_name, '')
 
         find_note_result = find_note_results[i]
         if len(find_note_result) == 0:
@@ -155,24 +160,24 @@ def ac_remove_tags(notes_to_update, note_info_results):
         invoke_multi_ac(remove_tags_actions)
 
 
-def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards): # NEW: Added suspend_cards parameter
+def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards):
     notes = tsv_to_ac_notes(tsv_path, deck_name, note_type)
 
-    invoke_ac('createDeck', deck=deck_name)
+    all_deck_names = sorted(list(set(note['deckName'] for note in notes)))
+    print(f"[+] Found {len(all_deck_names)} unique decks. Ensuring they exist...")
+    for deck in all_deck_names:
+        invoke_ac('createDeck', deck=deck)
 
     notes_to_add, notes_to_update = get_ac_add_and_update_note_lists(notes)
     
-    # --- ADD NEW NOTES ---
     print('[+] Adding {} new notes...'.format(len(notes_to_add)))
     added_note_ids = invoke_ac('addNotes', notes=notes_to_add)
 
-    # --- UPDATE EXISTING NOTES ---
     print('[+] Updating {} existing notes...'.format(len(notes_to_update)))
     find_note_actions = []
     for n in notes_to_update:
-        # NEW: Changed to use 'Quotation' which is more likely to be unique.
         unique_field_name = 'Quotation' if 'Quotation' in n['fields'] else 'Front'
-        unique_field_value = n['fields'][unique_field_name].replace('"', '\\"')
+        unique_field_value = n['fields'].get(unique_field_name, '').replace('"', '\\"')
         query = 'deck:"{}" "{}:{}"'.format(n['deckName'], unique_field_name, unique_field_value)
         find_note_actions.append(make_ac_request('findNotes', query=query))
     find_note_results = invoke_multi_ac(find_note_actions)
@@ -183,32 +188,26 @@ def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards): # NEW: 
     print('[+] Removing outdated tags from notes')
     ac_remove_tags(new_notes_to_update, updated_note_info_results)
 
-    # --- NEW: SUSPEND LOGIC ---
     if suspend_cards:
         card_ids_to_suspend = []
         
-        # Get card IDs for newly added notes
         if [nid for nid in added_note_ids if nid is not None]:
             print('[+] Fetching card info for new notes to suspend...')
-            # Filter out None IDs which can occur if a note failed to add
             valid_added_ids = [nid for nid in added_note_ids if nid is not None]
             added_note_info = invoke_ac('notesInfo', notes=valid_added_ids)
             for note_info in added_note_info:
                 card_ids_to_suspend.extend(note_info['cards'])
         
-        # Get card IDs for updated notes from the info we already fetched
         if updated_note_info_results:
             print('[+] Collecting card info for updated notes to suspend...')
             for note_info_list in updated_note_info_results:
                 for note_info in note_info_list:
                     card_ids_to_suspend.extend(note_info['cards'])
         
-        # Suspend all collected cards in one go
         if card_ids_to_suspend:
             print(f'[+] Suspending {len(card_ids_to_suspend)} cards...')
             invoke_ac('suspend', cards=card_ids_to_suspend)
 
-# ... (The download_csv and import_csv functions remain unchanged) ...
 def download_csv(sheet_url):
     print('[+] Downloading CSV')
     r = requests.get(sheet_url)
@@ -261,8 +260,8 @@ def parse_arguments():
     parser.add_argument(
         '-d',
         '--deck',
-        help='the name of the deck to import the sheet to',
-        required=True)
+        help='the name of the deck to import the sheet to (optional if Deck column exists in file)',
+        required=False)
     parser.add_argument(
         '-n',
         '--note',
@@ -274,13 +273,11 @@ def parse_arguments():
         help='Automatically trigger Anki synchronization after importing notes.',
         action='store_true')
     
-    # NEW: Added --suspend argument
     parser.add_argument(
         '--suspend',
         help='Suspend all newly added and updated cards upon import.',
         action='store_true')
 
-    # ... (rest of the arguments are unchanged) ...
     parser.add_argument(
         '--no-anki-connect',
         help='write notes directly to Anki DB without using AnkiConnect',
@@ -309,6 +306,8 @@ def validate_args(args):
     if not (args.path or args.url):
         print('[E] You must specify either --path or --url')
         exit(1)
+    
+    # Deck validation is now handled inside tsv_to_ac_notes
 
     if args.no_anki_connect:
         if not args.col:
@@ -351,7 +350,6 @@ def main():
         print('[W] Cards cannot be automatically synced, '
               'open Anki to sync them manually')
     else:
-        # NEW: Pass the suspend argument to the function
         send_to_anki_connect(
             csv_path,
             args.deck,
