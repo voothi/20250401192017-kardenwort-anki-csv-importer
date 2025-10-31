@@ -54,6 +54,9 @@ def tsv_to_ac_notes(tsv_path, deck_name, note_type):
             index_to_field_name[j] = field_name
         
         has_deck_column = 'Deck' in header
+        
+        if not deck_name and not has_deck_column:
+            raise ValueError("[E] --deck is required when no 'Deck' column is present in the file")
 
         for row in reader:
             fields = {}
@@ -75,7 +78,8 @@ def tsv_to_ac_notes(tsv_path, deck_name, note_type):
                     fields[field_name] = field_value
 
             if not current_deck:
-                raise ValueError("Error: No deck name found. Provide a deck via --deck argument or a 'Deck' column in the file.")
+                # This case should be rare now due to the check above, but as a safeguard:
+                raise ValueError("Error: No deck name found for a row. Provide a deck via --deck argument or a 'Deck' column in the file.")
 
             note = {
                 'deckName': current_deck,
@@ -307,27 +311,6 @@ def validate_args(args):
     if not (args.path or args.url):
         print('[E] You must specify either --path or --url')
         exit(1)
-    
-    if not args.deck:
-        file_path = args.path or args.url
-        if file_path and (file_path.startswith('http') or os.path.exists(file_path)):
-            try:
-                # This is a simplified check for the header, might not work for remote URLs without downloading
-                if file_path.startswith('http'):
-                     # Cannot reliably check remote file header without downloading
-                     pass
-                else:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        header = f.readline()
-                        if 'Deck' not in header.split('\t'):
-                            print('[E] --deck is required when no "Deck" column is present in the file')
-                            exit(1)
-            except Exception as e:
-                print(f'[W] Could not verify "Deck" column in the file, proceeding. Error: {e}')
-        else:
-            print('[E] --deck argument is required as the input file path could not be verified.')
-            exit(1)
-
 
     if args.no_anki_connect:
         if not args.col:
