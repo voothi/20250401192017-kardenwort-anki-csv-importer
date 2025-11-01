@@ -175,7 +175,6 @@ def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards):
     if all_deck_names:
         create_deck_actions = [make_ac_request('createDeck', deck=deck) for deck in all_deck_names]
         invoke_multi_ac(create_deck_actions)
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     total_notes = len(notes)
     print(f"[+] Starting to process {total_notes} notes in batches of {BATCH_SIZE}...", file=sys.stderr)
