@@ -78,7 +78,6 @@ def tsv_to_ac_notes(tsv_path, deck_name, note_type):
                     fields[field_name] = field_value
 
             if not current_deck:
-                # This case should be rare now due to the check above, but as a safeguard:
                 raise ValueError("Error: No deck name found for a row. Provide a deck via --deck argument or a 'Deck' column in the file.")
 
             note = {
@@ -166,51 +165,76 @@ def ac_remove_tags(notes_to_update, note_info_results):
 
 
 def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards):
+    BATCH_SIZE = 100
     notes = tsv_to_ac_notes(tsv_path, deck_name, note_type)
 
     all_deck_names = sorted(list(set(note['deckName'] for note in notes)))
     print(f"[+] Found {len(all_deck_names)} unique decks. Ensuring they exist...")
-    for deck in all_deck_names:
-        invoke_ac('createDeck', deck=deck)
+    if all_deck_names:
+        invoke_ac('createDeck', deck=all_deck_names)
 
-    notes_to_add, notes_to_update = get_ac_add_and_update_note_lists(notes)
-    
-    print('[+] Adding {} new notes...'.format(len(notes_to_add)))
-    added_note_ids = invoke_ac('addNotes', notes=notes_to_add)
+    total_notes = len(notes)
+    print(f"[+] Starting to process {total_notes} notes in batches of {BATCH_SIZE}...")
 
-    print('[+] Updating {} existing notes...'.format(len(notes_to_update)))
-    find_note_actions = []
-    for n in notes_to_update:
-        unique_field_name = 'Quotation' if 'Quotation' in n['fields'] else 'Front'
-        unique_field_value = n['fields'].get(unique_field_name, '').replace('"', '\\"')
-        query = 'deck:"{}" "{}:{}"'.format(n['deckName'], unique_field_name, unique_field_value)
-        find_note_actions.append(make_ac_request('findNotes', query=query))
-    find_note_results = invoke_multi_ac(find_note_actions)
+    all_added_note_ids = []
+    all_updated_note_info = []
 
-    new_notes_to_update, updated_note_info_results = ac_update_notes_and_get_note_info(
-        notes_to_update, find_note_results)
+    for i in range(0, total_notes, BATCH_SIZE):
+        batch = notes[i:i + BATCH_SIZE]
+        start_num = i + 1
+        end_num = min(i + BATCH_SIZE, total_notes)
+        print(f"\n--- Processing batch {start_num}-{end_num} ---")
 
-    print('[+] Removing outdated tags from notes')
-    ac_remove_tags(new_notes_to_update, updated_note_info_results)
+        notes_to_add, notes_to_update = get_ac_add_and_update_note_lists(batch)
+        
+        if notes_to_add:
+            print(f'[+] Adding {len(notes_to_add)} new notes...')
+            added_ids = invoke_ac('addNotes', notes=notes_to_add)
+            all_added_note_ids.extend(added_ids)
+        else:
+            print('[+] No new notes to add in this batch.')
+
+        if notes_to_update:
+            print(f'[+] Updating {len(notes_to_update)} existing notes...')
+            find_note_actions = []
+            for n in notes_to_update:
+                unique_field_name = 'Quotation' if 'Quotation' in n['fields'] else 'Front'
+                unique_field_value = n['fields'].get(unique_field_name, '').replace('"', '\\"')
+                query = 'deck:"{}" "{}:{}"'.format(n['deckName'], unique_field_name, unique_field_value)
+                find_note_actions.append(make_ac_request('findNotes', query=query))
+            
+            find_note_results = invoke_multi_ac(find_note_actions)
+
+            new_notes_to_update, updated_note_info_results = ac_update_notes_and_get_note_info(
+                notes_to_update, find_note_results)
+            
+            if new_notes_to_update:
+                print(f'[+] Removing outdated tags from {len(new_notes_to_update)} notes...')
+                ac_remove_tags(new_notes_to_update, updated_note_info_results)
+                all_updated_note_info.extend(updated_note_info_results)
+        else:
+            print('[+] No existing notes to update in this batch.')
+
+    print("\n--- Batch processing finished ---")
 
     if suspend_cards:
         card_ids_to_suspend = []
         
-        if [nid for nid in added_note_ids if nid is not None]:
+        valid_added_ids = [nid for nid in all_added_note_ids if nid is not None]
+        if valid_added_ids:
             print('[+] Fetching card info for new notes to suspend...')
-            valid_added_ids = [nid for nid in added_note_ids if nid is not None]
             added_note_info = invoke_ac('notesInfo', notes=valid_added_ids)
             for note_info in added_note_info:
                 card_ids_to_suspend.extend(note_info['cards'])
         
-        if updated_note_info_results:
+        if all_updated_note_info:
             print('[+] Collecting card info for updated notes to suspend...')
-            for note_info_list in updated_note_info_results:
+            for note_info_list in all_updated_note_info:
                 for note_info in note_info_list:
                     card_ids_to_suspend.extend(note_info['cards'])
         
         if card_ids_to_suspend:
-            print(f'[+] Suspending {len(card_ids_to_suspend)} cards...')
+            print(f'[+] Suspending {len(card_ids_to_suspend)} cards in total...')
             invoke_ac('suspend', cards=card_ids_to_suspend)
 
 def download_csv(sheet_url):
