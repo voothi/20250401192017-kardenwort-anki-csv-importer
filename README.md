@@ -2,6 +2,8 @@
 
 Imports a local or remote CSV/TSV file (including files stored in Google Sheets) into an Anki deck.
 
+[![Version](https://img.shields.io/badge/version-v1.28.8-blue)](https://github.com/kardenwort/20250913122858-kardenwort)  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 This script is designed for robustness and flexibility, featuring:
 - **Batch Processing**: Reliably imports very large files by processing notes in chunks.
 - **Dynamic Deck Assignment**: Automatically routes notes to different decks based on a `Deck` column in your source file.
@@ -28,18 +30,18 @@ This script is designed for robustness and flexibility, featuring:
 
 The script is controlled via command-line arguments.
 
-| Argument | Description | Required |
-|---|---|:---:|
-| `--path`, `-p` | Path to the local CSV/TSV file. You must provide either `--path` or `--url`. | No |
-| `--url`, `-u` | URL of the remote CSV file. You must provide either `--path` or `--url`. | No |
-| `--deck`, `-d` | The default deck name to import notes into. Becomes optional if a `Deck` column is present in your source file. | Conditional |
-| `--note`, `-n` | The name of the Anki note type to use for all imported cards. | **Yes** |
-| `--sync`, `-s` | If present, automatically triggers an Anki synchronization after the import is complete. | No |
-| `--suspend` | If present, all newly added and updated cards will be suspended upon import. | No |
-| `--no-anki-connect`| A flag to bypass AnkiConnect and write directly to the Anki database. **Use with caution.** | No |
-| `--col`, `-c` | The full path to your `collection.anki2` file. **Required** if using `--no-anki-connect`. | No |
-| `--allow-html` | Renders HTML in fields instead of treating it as plain text. Only for use with `--no-anki-connect`. | No |
-| `--skip-header` | Skips the first row of the source file. Only for use with `--no-anki-connect`. | No |
+| Argument            | Description                                                                                                     |  Required   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- | :---------: |
+| `--path`, `-p`      | Path to the local CSV/TSV file. You must provide either `--path` or `--url`.                                    |     No      |
+| `--url`, `-u`       | URL of the remote CSV file. You must provide either `--path` or `--url`.                                        |     No      |
+| `--deck`, `-d`      | The default deck name to import notes into. Becomes optional if a `Deck` column is present in your source file. | Conditional |
+| `--note`, `-n`      | The name of the Anki note type to use for all imported cards.                                                   |   **Yes**   |
+| `--sync`, `-s`      | If present, automatically triggers an Anki synchronization after the import is complete.                        |     No      |
+| `--suspend`         | If present, all newly added and updated cards will be suspended upon import.                                    |     No      |
+| `--no-anki-connect` | A flag to bypass AnkiConnect and write directly to the Anki database. **Use with caution.**                     |     No      |
+| `--col`, `-c`       | The full path to your `collection.anki2` file. **Required** if using `--no-anki-connect`.                       |     No      |
+| `--allow-html`      | Renders HTML in fields instead of treating it as plain text. Only for use with `--no-anki-connect`.             |     No      |
+| `--skip-header`     | Skips the first row of the source file. Only for use with `--no-anki-connect`.                                  |     No      |
 
 [Back to Top](#table-of-contents)
 
