@@ -5,7 +5,7 @@ import csv
 import requests
 import os
 import tempfile
-import sys # <-- ИЗМЕНЕНИЕ №1: Импортируем sys
+import sys
 
 ANKI_CONNECT_URL = 'http://localhost:8765'
 
@@ -171,8 +171,11 @@ def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards):
 
     all_deck_names = sorted(list(set(note['deckName'] for note in notes)))
     print(f"[+] Found {len(all_deck_names)} unique decks. Ensuring they exist...", file=sys.stderr)
-    for deck in all_deck_names:
-        invoke_ac('createDeck', deck=deck)
+    
+    if all_deck_names:
+        create_deck_actions = [make_ac_request('createDeck', deck=deck) for deck in all_deck_names]
+        invoke_multi_ac(create_deck_actions)
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     total_notes = len(notes)
     print(f"[+] Starting to process {total_notes} notes in batches of {BATCH_SIZE}...", file=sys.stderr)
