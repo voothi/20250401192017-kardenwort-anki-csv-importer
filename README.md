@@ -4,20 +4,22 @@ Imports a local CSV file or a remote CSV file at a URL (including files stored i
 
 ## Table of Contents
 
-* [Usage](#usage)
-* [Instructions](#instructions)
-   * [Using AnkiConnect (Recommended)](#using-ankiconnect-recommended)
-   * [Without AnkiConnect](#without-ankiconnect)
-      * [collection_path](#collection_path)
-* [Getting the CSV URL for a Google Sheet](#getting-the-csv-url-for-a-google-sheet)
-* [CSV format](#csv-format)
-   * [When using AnkiConnect](#when-using-ankiconnect)
-   * [When using --no-anki-connect](#when-using---no-anki-connect)
-* [HTML Formatting](#html-formatting)
-* [How sheet modifications are handled](#how-sheet-modifications-are-handled)
-* [Notes](#notes)
-* [TODO](#todo)
-* [License](#license)
+- [Anki CSV Importer](#anki-csv-importer)
+  - [Table of Contents](#table-of-contents)
+  - [Usage](#usage)
+  - [Instructions](#instructions)
+    - [Using AnkiConnect (Recommended)](#using-ankiconnect-recommended)
+    - [Without AnkiConnect](#without-ankiconnect)
+      - [`collection_path`](#collection_path)
+  - [Getting the CSV URL for a Google Sheet](#getting-the-csv-url-for-a-google-sheet)
+  - [CSV format](#csv-format)
+    - [When using AnkiConnect](#when-using-ankiconnect)
+    - [When using --no-anki-connect](#when-using---no-anki-connect)
+  - [HTML Formatting](#html-formatting)
+  - [How sheet modifications are handled](#how-sheet-modifications-are-handled)
+  - [Notes](#notes)
+  - [TODO](#todo)
+  - [License](#license)
 
 ## Usage
 
@@ -50,7 +52,7 @@ optional arguments:
 
 1. The recommended way to use this script is with the [AnkiConnect plugin](https://ankiweb.net/shared/info/2055492159). Install this like you would any other Anki plugin.
 1. Install Python3 and `pip3`
-1. Clone this repository (`git clone https://github.com/gsingh93/anki-csv-importer`) or download and unzip the source code from [here](https://github.com/gsingh93/anki-csv-importer/archive/master.zip)
+1. Clone this repository (`git clone https://github.com/kardenwort/20250913123240-kardenwort-anki-csv-importer`) or download and unzip the source code from [here](https://github.com/gsingh93/anki-csv-importer/archive/master.zip)
 1. Open a terminal in the source code directory and run `pip3 install requests`
 1. Make sure Anki **is running** and run one of the commands below. The double quotes in the command are required if the parameters contain any spaces or special characters. If the specified deck does not exist, it will be created
     1. For a local CSV file run `./anki-csv-importer.py --path "<path>" --deck "<deck_name>" --note "<note_type>"`
@@ -67,7 +69,7 @@ The original vision for this script was to have cards synced from a CSV (ideally
 If you are fine with the above two issues, follow these instructions:
 
 1. Install Python 3 and `pip3`
-1. Clone this repository (`git clone https://github.com/gsingh93/anki-csv-importer`) or download and unzip the source code from [here](https://github.com/gsingh93/anki-csv-importer/archive/master.zip)
+1. Clone this repository (`git clone https://github.com/kardenwort/20250913123240-kardenwort-anki-csv-importer`) or download and unzip the source code from [here](https://github.com/gsingh93/anki-csv-importer/archive/master.zip)
 1. Open a terminal in the source code directory and run `pip3 install -r requirements.txt`
 1. Make sure Anki **is not running** and run one of the commands below. The double quotes in the command are required if the parameters contain any spaces or special characters. If the specified deck does not exist, it will be created
     1. For a local CSV file run `./anki-csv-importer.py --path "<path>" --deck "<deck_name>" --note "<note_type>" --col "<collection_path>"` --no-anki-connect
