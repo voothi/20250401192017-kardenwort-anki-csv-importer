@@ -1,156 +1,162 @@
-# Anki CSV Importer
+# Anki CSV/TSV Importer
 
-Imports a local CSV file or a remote CSV file at a URL (including files stored in Google Sheets) into an Anki deck
+Imports a local or remote CSV/TSV file (including files stored in Google Sheets) into an Anki deck.
+
+This script is designed for robustness and flexibility, featuring:
+- **Batch Processing**: Reliably imports very large files by processing notes in chunks.
+- **Dynamic Deck Assignment**: Automatically routes notes to different decks based on a `Deck` column in your source file.
+- **Smart Updates**: Updates existing notes based on a unique field (prioritizing `Quotation`, then `Front`) without resetting scheduling.
+- **Workflow Control**: An option to suspend all imported cards, allowing you to introduce them into your study queue at your own pace.
 
 ## Table of Contents
 
-- [Anki CSV Importer](#anki-csv-importer)
+- [Anki CSV/TSV Importer](#anki-csvtsv-importer)
   - [Table of Contents](#table-of-contents)
   - [Usage](#usage)
   - [Instructions](#instructions)
     - [Using AnkiConnect (Recommended)](#using-ankiconnect-recommended)
     - [Without AnkiConnect](#without-ankiconnect)
-      - [`collection_path`](#collection_path)
   - [Getting the CSV URL for a Google Sheet](#getting-the-csv-url-for-a-google-sheet)
-  - [CSV format](#csv-format)
-    - [When using AnkiConnect](#when-using-ankiconnect)
-    - [When using --no-anki-connect](#when-using---no-anki-connect)
+  - [File Format](#file-format)
   - [HTML Formatting](#html-formatting)
-  - [How sheet modifications are handled](#how-sheet-modifications-are-handled)
+  - [How Sheet Modifications Are Handled](#how-sheet-modifications-are-handled)
   - [Notes](#notes)
   - [TODO](#todo)
   - [License](#license)
 
 ## Usage
 
-```
-usage: anki-csv-importer.py [-h] [-p PATH] [-u URL] -d DECK -n NOTE
-                            [--no-anki-connect] [-c COL] [--allow-html]
-                            [--skip-header]
+The script is controlled via command-line arguments.
 
-Import a local or remote CSV file into Anki
+| Argument | Description | Required |
+|---|---|:---:|
+| `--path`, `-p` | Path to the local CSV/TSV file. You must provide either `--path` or `--url`. | No |
+| `--url`, `-u` | URL of the remote CSV file. You must provide either `--path` or `--url`. | No |
+| `--deck`, `-d` | The default deck name to import notes into. Becomes optional if a `Deck` column is present in your source file. | Conditional |
+| `--note`, `-n` | The name of the Anki note type to use for all imported cards. | **Yes** |
+| `--sync`, `-s` | If present, automatically triggers an Anki synchronization after the import is complete. | No |
+| `--suspend` | If present, all newly added and updated cards will be suspended upon import. | No |
+| `--no-anki-connect`| A flag to bypass AnkiConnect and write directly to the Anki database. **Use with caution.** | No |
+| `--col`, `-c` | The full path to your `collection.anki2` file. **Required** if using `--no-anki-connect`. | No |
+| `--allow-html` | Renders HTML in fields instead of treating it as plain text. Only for use with `--no-anki-connect`. | No |
+| `--skip-header` | Skips the first row of the source file. Only for use with `--no-anki-connect`. | No |
 
-optional arguments:
-  -h, --help            show this help message and exit
-  -p PATH, --path PATH  the path of the local CSV file
-  -u URL, --url URL     the URL of the remote CSV file
-  -d DECK, --deck DECK  the name of the deck to import the sheet to
-  -n NOTE, --note NOTE  the note type to import
-  --no-anki-connect     write notes directly to Anki DB without using
-                        AnkiConnect
-  -c COL, --col COL     the path to the .anki2 collection (only when using
-                        --no-anki-connect)
-  --allow-html          render HTML instead of treating it as plaintext (only
-                        when using --no-anki-connect)
-  --skip-header         skip first row of CSV (only when using --no-anki-
-                        connect)
-```
+[Back to Top](#table-of-contents)
 
 ## Instructions
 
 ### Using AnkiConnect (Recommended)
 
-1. The recommended way to use this script is with the [AnkiConnect plugin](https://ankiweb.net/shared/info/2055492159). Install this like you would any other Anki plugin.
-1. Install Python3 and `pip3`
-1. Clone this repository (`git clone https://github.com/kardenwort/20250913123240-kardenwort-anki-csv-importer`) or download and unzip the source code from [here](https://github.com/gsingh93/anki-csv-importer/archive/master.zip)
-1. Open a terminal in the source code directory and run `pip3 install requests`
-1. Make sure Anki **is running** and run one of the commands below. The double quotes in the command are required if the parameters contain any spaces or special characters. If the specified deck does not exist, it will be created
-    1. For a local CSV file run `./anki-csv-importer.py --path "<path>" --deck "<deck_name>" --note "<note_type>"`
-    1. For a remote CSV file run `./anki-csv-importer.py --url "<url>" --deck "<deck_name>" --note "<note_type>"`. See [this section](#getting-the-csv-url-for-a-google-sheet) to get the CSV URL for a Google Sheet
+This is the safest and most powerful way to use the importer.
 
-A sync is automatically run after the notes are added. See the [Notes](#Notes) section for how to continuously sync the CSV to Anki while hiding the Anki window.
+1.  Install the [AnkiConnect plugin](https://ankiweb.net/shared/info/2055492159) via Anki's add-on manager.
+2.  Install Python 3 and `pip3`.
+3.  Clone this repository (`git clone https://github.com/kardenwort/20250913123240-kardenwort-anki-csv-importer`).
+4.  In your terminal, navigate to the repository folder and install dependencies: `pip3 install requests`.
+5.  Make sure Anki **is running** in the background.
+6.  Run the script from your terminal. All decks specified in your file or via the `--deck` argument will be created automatically if they don't exist.
+
+**Example Commands:**
+
+```bash
+# Import from a local file, using a default deck
+./anki-importer.py --path "/path/to/notes.tsv" --note "Basic" --deck "My Subject"
+
+# Import from a remote URL, with dynamic decks defined in the file
+./anki-importer.py --url "<published_google_sheet_url>" --note "Vocabulary"
+
+# Import and suspend all new cards, then sync
+./anki-importer.py --path "new_vocab.tsv" --note "Basic" --deck "Pending" --suspend --sync
+```
 
 ### Without AnkiConnect
 
-The original vision for this script was to have cards synced from a CSV (ideally a Google Sheet) to Anki without ever having to open the Anki desktop application (but still accessible on other platforms like AnkiDroid). However, there are two issues with this approach:
-1. Anki does not support syncing through the Python API. Only actual plugins can do this. This means that while notes can be added to the desktop version of Anki, they cannot be synced to the Anki server and thus they will not be accessible on other platforms like Android until Anki is opened and a sync occurs.
-2. The version of the `anki` Python package on PyPi may not necessarily correspond to the version of Anki you have installed. If there is a mismatch between the two versions, then each may have a different database schema, and so **using this script may lead to data corruption**. Use at your own risk. If you would like to go this route, create a backup for your collection file before testing this, and try to use the latest version of Anki, which may be different from the stable version of Anki. Once you see that the script is successfully able to import notes, there should be no risk of data corruption unless you update the desktop application or the Python library.
+This method writes directly to Anki's database and carries significant risks:
 
-If you are fine with the above two issues, follow these instructions:
+1.  **No Auto-Sync**: Changes are local only. You must open Anki and sync manually to see them on other devices.
+2.  **Risk of Data Corruption**: A version mismatch between the `anki` Python library and your Anki application can corrupt your collection. **Always back up your collection before using this method.**
 
-1. Install Python 3 and `pip3`
-1. Clone this repository (`git clone https://github.com/kardenwort/20250913123240-kardenwort-anki-csv-importer`) or download and unzip the source code from [here](https://github.com/gsingh93/anki-csv-importer/archive/master.zip)
-1. Open a terminal in the source code directory and run `pip3 install -r requirements.txt`
-1. Make sure Anki **is not running** and run one of the commands below. The double quotes in the command are required if the parameters contain any spaces or special characters. If the specified deck does not exist, it will be created
-    1. For a local CSV file run `./anki-csv-importer.py --path "<path>" --deck "<deck_name>" --note "<note_type>" --col "<collection_path>"` --no-anki-connect
-    1. For a remote CSV file run `./anki-csv-importer.py --url "<url>" --deck "<deck_name>" --note "<note_type>" --col "<collection_path>" --no-anki-connect`. See [this section](#getting-the-csv-url-for-a-google-sheet) to get the CSV URL for a Google Sheet
-1. Open Anki, view the deck to confirm the import was successful, and trigger a sync
+If you accept these risks:
 
-#### `collection_path`
+1.  Make sure Anki **is not running**.
+2.  Install the required Python packages: `pip3 install -r requirements.txt`.
+3.  Run the script with the `--no-anki-connect` and `--col` flags.
 
-To find the value for `collection_path`, see [the Anki documentation](https://docs.ankiweb.net/#/files?id=file-locations) to see where the Anki folder for your system is:
+**To find your `collection.anki2` path:**
+Refer to the [Anki Manual](https://docs.ankiweb.net/#/files?id=file-locations). For a profile named `User1` on macOS, the path is typically `~/Library/Application Support/Anki2/User1/collection.anki2`.
 
-> On Windows, the latest Anki versions store your Anki files in your appdata folder. You can access it by opening the file manager, and typing %APPDATA%\Anki2 in the location field. Older versions of Anki stored your Anki files in a folder called Anki in your Documents folder.
->
-> On Mac computers, recent Anki versions store all their files in the ~/Library/Application Support/Anki2 folder. The Library folder is hidden by default, but can be revealed in Finder by holding down the option key while clicking on the Go menu. If you’re on an older Anki version, your Anki files will be in your Documents/Anki folder.
->
-> On Linux, recent Anki versions store your data in ~/.local/share/Anki2, or $XDG_DATA_HOME/Anki2 if you have set a custom data path. Older versions of Anki stored your files in ~/Documents/Anki or ~/Anki.
-
-Then add `<profile_name>/collection.anki2` to that path. For example, if your profile is named `Foo` and you are on MacOS, the `collection_path` would be `~/Library/Application Support/Anki2/Foo/collection.anki2`
+[Back to Top](#table-of-contents)
 
 ## Getting the CSV URL for a Google Sheet
 
-1. Create a new Google Sheet or open an existing Sheet
-2. Click the "Share" button, followed by "Get shareable link", and then "Anyone with the link can view"
-3. Open the developer tools in your browser and open the "Network" tab
-4. In Google Sheets click "File -> Download -> Comma-separated values (.csv, current sheet)"
-5. Right click on the network request in the developer tools and click "Copy -> Copy link address" (for Chrome, instructions may vary for other browsers)
+To get a stable URL for a private or public sheet:
 
-## CSV format
+1.  Open your Google Sheet.
+2.  Go to **File** -> **Share** -> **Publish to web**.
+3.  In the dialog, under the "Link" tab, select the specific sheet you want to import.
+4.  Choose **Comma-separated values (.csv)** from the dropdown menu.
+5.  Click **Publish** and copy the generated URL. This is the URL to use with the `--url` argument.
 
-### When using AnkiConnect
+[Back to Top](#table-of-contents)
 
-The first row of the CSV must contain the names of the fields of the note type, and it may optionally contain 'Tags' to specify which column should be used for tags.
+## File Format
 
-For example, if the note has the three fields `question`, `answer`, `some_field`, then the CSV file should look something like
+The script works best with a TSV (Tab-Separated Values) or CSV file that includes a header row.
+
+The first row **must** be a header containing the exact field names of your Anki note type.
+
+**Special Header Columns:**
+
+*   `Deck` (Optional): Specifies the destination deck for that row. This allows you to import notes into multiple decks from a single file. If a value in this column is present, it overrides the `--deck` command-line argument for that note.
+*   `Tags` (Optional): A space-separated list of tags to add to the note.
+
+If a `Deck` column is not provided in your file, you **must** specify a default deck using the `--deck` argument.
+
+**Example TSV File:**
+```tsv
+Quotation	Translation	Tags	Deck
+"To be or not to be"	"Быть или не быть"	shakespeare classics	English::Literature
+"Veni, vidi, vici"	"Пришел, увидел, победил"	latin history	Latin::Quotes
 ```
-Question,Answer,Some Field,Tags
-question1,answer1,some_field1,tags1
-question2,answer2,some_field1,tags1
-...
-```
 
-### When using --no-anki-connect
-
-Each column of the CSV corresponds to a field in a note. No header row is needed, the first row can be the data for the first note. After all the columns for the note fields, the next column is for tags. If you would like a header row in your CSV but want to avoid having it imported as a note, use the `--skip-header` flag.
-
-For example, if the note has the three fields `question`, `answer`, `some_field`, then the CSV file should look something like
-```
-question1,answer1,some_field1,tags1
-question2,answer2,some_field1,tags1
-...
-```
-
-If the CSV contains more columns than the number of fields in the specified note plus one (for the tags field), they will be ignored. If there are less columns in the CSV than in the note, they will be blank in the note.
+[Back to Top](#table-of-contents)
 
 ## HTML Formatting
 
-HTML formatting is enabled when using AnkiConnect and currently cannot be disabled.
+HTML formatting is **always enabled** when using AnkiConnect.
 
-When using `--no-anki-connect`, HTML formatting is disabled by default; any HTML tags are not rendered and displayed as plaintext. If you would like to render it, you can use the `--allow-html` flag. For example, to add a link to `https://google.com` in a field, use `<a href="https://google.com">https://google.com</a>`. When using `--allow-html`, you must make sure your HTML formatting is correct or notes can be incorrectly imported into Anki.
+When using the `--no-anki-connect` method, HTML is disabled by default. Use the `--allow-html` flag to enable it, but ensure your HTML is well-formed to avoid import errors.
 
-To display HTML as plaintext when HTML formatting is enabled is enabled, you can use [HTML escape entities](https://www.w3schools.com/html/html_entities.asp). For example, to display `<b>` as plaintext, you would enter `&lt;b&gt;`.
+To display HTML code as plain text (e.g., to show `<b>` on a card), use HTML entities: `&lt;b&gt;`.
 
-## How sheet modifications are handled
+[Back to Top](#table-of-contents)
 
-This is the default behavior of Anki's `TextImporter`:
+## How Sheet Modifications Are Handled
 
-- When a new row is added or the "primary field" (i.e. "Front") is changed in the Google Sheet, a new note is added to the Anki deck
-- When any column other than the "primary field" is updated in the Google Sheet, the note in the deck is updated with the new fields. Review time does not change.
-- When a row is deleted, it's not deleted from the Anki deck
+The script intelligently handles changes to your source file:
+
+*   **New Rows**: A new note is created in Anki.
+*   **Modified Rows**: The script identifies existing notes by checking for a unique field, trying `Quotation` first, then falling back to `Front`. If a match is found, the note in Anki is updated with the new field content without affecting its review schedule.
+*   **Deleted Rows**: Deleting a row in your source file **does not** delete the corresponding note from your Anki collection. This must be done manually within Anki.
+
+[Back to Top](#table-of-contents)
 
 ## Notes
 
-- This script should theoretically work on MacOS, Windows, and Linux, but it has only been tested on MacOS
-- Adding media to notes is not supported at the moment
-- If you would like to keep your Anki deck continuously in sync with a remote CSV file, setup a cron job on MacOS and Linux or a scheduled task on Windows to run the command at some regular interval.
-  - When using AnkiConnect, this requires you to keep Anki constantly open, or launch it in your cron job. There are various solutions on different platforms to do this while hiding the window. For example, on MacOS you can use [this solution](https://apple.stackexchange.com/a/349641) combined with minimizing the window or moving it to an unused desktop, and for Windows you can use applications like [RBTray](http://rbtray.sourceforge.net/).
-- Use the [Add row to Google Sheets](https://chrome.google.com/webstore/detail/add-row-to-google-sheets/baikkcmfolbapkeefcdccadmelcnijcd) extension to add questions to a Google Sheet while you browse the web, and then use this script to keep that Sheet in sync with Anki
+- **Batch Processing**: The script processes notes in batches of 100. This makes it highly reliable for importing thousands of notes at once without overwhelming AnkiConnect.
+- **Media**: Importing media files (audio, images) is not currently supported.
+- **Continuous Sync**: To keep a remote sheet synchronized with Anki, set up a cron job (macOS/Linux) or a Scheduled Task (Windows) to run this script at a regular interval.
+
+[Back to Top](#table-of-contents)
 
 ## TODO
 
-- Support audio and images when using AnkiConnect
+- [ ] Support for importing media files (audio, images).
+
+[Back to Top](#table-of-contents)
 
 ## License
 
 [MIT](./LICENSE)
+
+[Back to Top](#table-of-contents)
