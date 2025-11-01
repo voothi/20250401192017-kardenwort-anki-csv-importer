@@ -170,8 +170,8 @@ def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards):
 
     all_deck_names = sorted(list(set(note['deckName'] for note in notes)))
     print(f"[+] Found {len(all_deck_names)} unique decks. Ensuring they exist...")
-    if all_deck_names:
-        invoke_ac('createDeck', deck=all_deck_names)
+    for deck in all_deck_names:
+        invoke_ac('createDeck', deck=deck)
 
     total_notes = len(notes)
     print(f"[+] Starting to process {total_notes} notes in batches of {BATCH_SIZE}...")
