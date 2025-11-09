@@ -184,7 +184,9 @@ def update_deck_descriptions(metadata_file_path):
     for deck_name, description in descriptions.items():
         try:
             print(f"    - Updating description for deck: '{deck_name}'", file=sys.stderr)
-            invoke_ac('setDeckDescription', deck=deck_name, description=description)
+            deck_properties = invoke_ac('getDeck', deck=deck_name)
+            deck_properties['desc'] = description
+            invoke_ac('guiEditDeck', deck=deck_properties)
         except Exception as e:
             print(f"[W] Failed to update description for deck '{deck_name}': {e}", file=sys.stderr)
 
