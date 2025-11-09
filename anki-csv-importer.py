@@ -6,6 +6,7 @@ import requests
 import os
 import tempfile
 import sys
+import json
 
 ANKI_CONNECT_URL = 'http://localhost:8765'
 
@@ -164,8 +165,33 @@ def ac_remove_tags(notes_to_update, note_info_results):
     if remove_tags_actions:
         invoke_multi_ac(remove_tags_actions)
 
+def update_deck_descriptions(metadata_file_path):
+    if not metadata_file_path or not os.path.exists(metadata_file_path):
+        return
+    
+    print(f"[+] Processing deck metadata from {metadata_file_path}...", file=sys.stderr)
+    try:
+        with open(metadata_file_path, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+    except (IOError, json.JSONDecodeError) as e:
+        print(f"[W] Could not read or parse metadata file: {e}", file=sys.stderr)
+        return
 
-def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards):
+    descriptions = metadata.get("deck_descriptions")
+    if not isinstance(descriptions, dict):
+        return
+        
+    for deck_name, description in descriptions.items():
+        try:
+            print(f"    - Updating description for deck: '{deck_name}'", file=sys.stderr)
+            deck_config = invoke_ac('getDeckConfig', deck=deck_name)
+            deck_config['desc'] = description
+            invoke_ac('saveDeckConfig', config=deck_config)
+        except Exception as e:
+            print(f"[W] Failed to update description for deck '{deck_name}': {e}", file=sys.stderr)
+
+
+def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards, metadata_file_path):
     BATCH_SIZE = 100
     notes = tsv_to_ac_notes(tsv_path, deck_name, note_type)
 
@@ -175,6 +201,8 @@ def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards):
     if all_deck_names:
         create_deck_actions = [make_ac_request('createDeck', deck=deck) for deck in all_deck_names]
         invoke_multi_ac(create_deck_actions)
+    
+    update_deck_descriptions(metadata_file_path)
 
     total_notes = len(notes)
     print(f"[+] Starting to process {total_notes} notes in batches of {BATCH_SIZE}...", file=sys.stderr)
@@ -299,6 +327,11 @@ def parse_arguments():
         '--note',
         help='the note type to import',
         required=True)
+    
+    parser.add_argument(
+        '--deck-metadata-file',
+        help='Path to a JSON file with deck metadata (e.g., descriptions).'
+    )
 
     parser.add_argument(
         '-s', '--sync',
@@ -384,7 +417,8 @@ def main():
             csv_path,
             args.deck,
             args.note,
-            args.suspend)
+            args.suspend,
+            args.deck_metadata_file)
 
         if args.sync:
             print('[+] Syncing', file=sys.stderr)
