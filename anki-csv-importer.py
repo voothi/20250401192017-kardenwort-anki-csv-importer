@@ -188,7 +188,6 @@ def update_deck_descriptions(metadata_file_path):
         except Exception as e:
             print(f"[W] Failed to update description for deck '{deck_name}': {e}", file=sys.stderr)
 
-
 def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards, metadata_file_path):
     BATCH_SIZE = 100
     notes = tsv_to_ac_notes(tsv_path, deck_name, note_type)
