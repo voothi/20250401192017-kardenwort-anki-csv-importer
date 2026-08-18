@@ -7,8 +7,54 @@ import os
 import tempfile
 import sys
 import json
+import re
+import datetime
+from pathlib import Path
 
-ANKI_CONNECT_URL = 'http://localhost:8765'
+ANKI_CONNECT_URL = os.environ.get('ANKI_CONNECT_URL', 'http://127.0.0.1:8765')
+
+
+def write_import_log_entry(log_path, trace_id, level, message):
+    if not log_path:
+        return
+    try:
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[{now_str}] [{trace_id}] [{level}] {message}\n"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
+
+
+def emit_error_and_exit(code, message, details=None, zid="", trace_id="", log_file=None):
+    payload = {
+        "status": "error",
+        "zid": zid,
+        "trace_id": trace_id or (f"{zid}:export:anki" if zid else "export:anki"),
+        "code": code,
+        "message": message,
+        "details": details or {}
+    }
+    if log_file:
+        write_import_log_entry(log_file, payload["trace_id"], "ERROR", f"[{code}] {message}")
+    print(json.dumps(payload))
+    print(f"[E] {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def probe_ankiconnect(url=ANKI_CONNECT_URL, timeout=2.0):
+    try:
+        r = requests.post(url, json={'action': 'version', 'version': 6}, timeout=timeout)
+        if r.status_code == 200:
+            res = r.json()
+            if res.get('error') is None and 'result' in res:
+                return True, None
+            return False, res.get('error', 'AnkiConnect returned an error')
+        return False, f"HTTP status code {r.status_code}"
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        return False, str(e)
+    except Exception as e:
+        return False, str(e)
 
 
 def parse_ac_response(response):
@@ -265,6 +311,13 @@ def send_to_anki_connect(tsv_path, deck_name, note_type, suspend_cards, metadata
             print(f'[+] Suspending {len(card_ids_to_suspend)} cards in total...', file=sys.stderr)
             invoke_ac('suspend', cards=card_ids_to_suspend)
 
+    return {
+        "total_notes": total_notes,
+        "added_count": len([nid for nid in all_added_note_ids if nid is not None]),
+        "updated_count": len(all_updated_note_info),
+        "decks": all_deck_names
+    }
+
 def download_csv(sheet_url):
     print('[+] Downloading CSV', file=sys.stderr)
     r = requests.get(sheet_url)
@@ -341,6 +394,16 @@ def parse_arguments():
         action='store_true')
 
     parser.add_argument(
+        '--zid',
+        help='Session ZID correlation identifier')
+    parser.add_argument(
+        '--trace-id',
+        help='Trace correlation identifier')
+    parser.add_argument(
+        '--log-file',
+        help='Path to structured import log file')
+
+    parser.add_argument(
         '--no-anki-connect',
         help='write notes directly to Anki DB without using AnkiConnect',
         action='store_true')
@@ -397,6 +460,21 @@ def main():
     else:
         assert False
 
+    zid = args.zid or ""
+    if not zid and args.path:
+        m = re.search(r'(\d{14})', os.path.basename(args.path))
+        if m:
+            zid = m.group(1)
+
+    trace_id = args.trace_id or (f"{zid}:export:anki" if zid else "export:anki")
+
+    log_file = args.log_file
+    if not log_file and args.path and zid:
+        p = Path(args.path)
+        potential_log = p.parent / f"{zid}-import.log"
+        if p.parent.name == 'favorites' or potential_log.exists():
+            log_file = str(potential_log)
+
     if args.no_anki_connect:
         import anki
         col = anki.Collection(args.col)
@@ -409,23 +487,72 @@ def main():
             args.skip_header)
         print('[W] Cards cannot be automatically synced, '
               'open Anki to sync them manually', file=sys.stderr)
+        summary = {"total_notes": 0, "decks": [args.deck] if args.deck else []}
     else:
-        send_to_anki_connect(
-            csv_path,
-            args.deck,
-            args.note,
-            args.suspend,
-            args.deck_metadata_file)
+        online, probe_err = probe_ankiconnect(ANKI_CONNECT_URL, timeout=2.0)
+        if not online:
+            emit_error_and_exit(
+                code="ERR_ANKI_NOT_RUNNING",
+                message=f"Cannot connect to AnkiConnect at {ANKI_CONNECT_URL.replace('http://', '')}. Make sure Anki is open.",
+                details={"url": ANKI_CONNECT_URL, "error": probe_err},
+                zid=zid,
+                trace_id=trace_id,
+                log_file=log_file
+            )
+
+        try:
+            summary = send_to_anki_connect(
+                csv_path,
+                args.deck,
+                args.note,
+                args.suspend,
+                args.deck_metadata_file)
+        except ValueError as e:
+            emit_error_and_exit(
+                code="ERR_NOTE_TYPE_MISMATCH",
+                message=str(e),
+                details={"path": csv_path, "note_type": args.note},
+                zid=zid,
+                trace_id=trace_id,
+                log_file=log_file
+            )
+        except Exception as e:
+            emit_error_and_exit(
+                code="ERR_ANKICONNECT_DISABLED" if "plugin" in str(e).lower() else "ERR_ANKI_NOT_RUNNING",
+                message=f"Anki import error: {e}",
+                details={"path": csv_path, "error": str(e)},
+                zid=zid,
+                trace_id=trace_id,
+                log_file=log_file
+            )
 
         if args.sync:
             print('[+] Syncing', file=sys.stderr)
-            invoke_ac("sync")
+            try:
+                invoke_ac("sync")
+            except Exception as e:
+                print(f"[W] Sync warning: {e}", file=sys.stderr)
         else:
             print('[+] Import complete. Sync was skipped (use --sync to enable).', file=sys.stderr)
+
+    deck_name_res = args.deck or (summary["decks"][0] if summary.get("decks") else "")
+    total_cards_imported = summary.get("total_notes", 0)
+    success_payload = {
+        "status": "success",
+        "zid": zid,
+        "trace_id": trace_id,
+        "cards_imported": total_cards_imported,
+        "deck_name": deck_name_res,
+        "message": f"Successfully imported {total_cards_imported} card(s) into Anki deck '{deck_name_res}'."
+    }
+    if log_file:
+        write_import_log_entry(log_file, trace_id, "SUCCESS", success_payload["message"])
+    print(json.dumps(success_payload))
 
     if args.url:
         os.remove(csv_path)
         print('[+] Removed temporary files', file=sys.stderr)
 
 
-main()
+if __name__ == '__main__':
+    main()
