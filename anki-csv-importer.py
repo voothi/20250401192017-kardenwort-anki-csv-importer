@@ -97,16 +97,23 @@ def tsv_to_ac_notes(tsv_path, deck_name, note_type):
     index_to_field_name = {}
     with open(tsv_path, encoding='utf-8') as tsvfile:
         reader = csv.reader(tsvfile, delimiter='\t')
-        header = next(reader)
-        for j, field_name in enumerate(header):
-            index_to_field_name[j] = field_name
+        header = None
+        has_deck_column = False
         
-        has_deck_column = 'Deck' in header
-        
-        if not deck_name and not has_deck_column:
-            raise ValueError("[E] --deck is required when no 'Deck' column is present in the file")
-
         for row in reader:
+            if not row or not any(cell.strip() for cell in row):
+                continue
+            if row[0].startswith('#'):
+                continue
+            if header is None:
+                header = row
+                for j, field_name in enumerate(header):
+                    index_to_field_name[j] = field_name
+                has_deck_column = 'Deck' in header
+                if not deck_name and not has_deck_column:
+                    raise ValueError("[E] --deck is required when no 'Deck' column is present in the file")
+                continue
+
             fields = {}
             tags = []
             current_deck = deck_name

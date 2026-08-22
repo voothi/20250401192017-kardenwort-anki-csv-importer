@@ -61,3 +61,23 @@ def test_emit_error_and_exit(tmp_path, capsys):
     
     log_content = log_file.read_text(encoding="utf-8")
     assert "[ERR_ANKI_NOT_RUNNING]" in log_content
+
+
+def test_tsv_to_ac_notes_with_comments(tmp_path):
+    tsv = tmp_path / "test.tsv"
+    tsv.write_text(
+        "# Exported from SQLite session 20260822135459\n"
+        "# Another comment\n"
+        "Quotation\tWordSource\tDeskSelected\n"
+        "rate\trate\t1\n"
+        "pass\tpass\t1\n",
+        encoding="utf-8"
+    )
+    notes = importer.tsv_to_ac_notes(str(tsv), "TestDeck", "Basic")
+    assert len(notes) == 2
+    assert notes[0]["deckName"] == "TestDeck"
+    assert notes[0]["modelName"] == "Basic"
+    assert notes[0]["fields"]["Quotation"] == "rate"
+    assert notes[0]["fields"]["WordSource"] == "rate"
+    assert notes[1]["fields"]["Quotation"] == "pass"
+
